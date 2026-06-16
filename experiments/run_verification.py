@@ -351,22 +351,24 @@ def test_benchmarks():
     assert len(res.task_order) == 3
     assert abs(res.final_accuracy - 0.8) < 1e-6
 
-    # Test PermutedMNISTBenchmark constructor and permutation generation
-    from continua_fabric.benchmarks import PermutedMNISTBenchmark
+    # Test CIFAR100SuperclassBenchmark structure (no data loading)
+    from continua_fabric.benchmarks import CIFAR100SuperclassBenchmark, PermutedMNISTBenchmark
+    assert CIFAR100SuperclassBenchmark.N_SUPERCLASSES == 20
+    assert CIFAR100SuperclassBenchmark.N_FINE_PER_SUPERCLASS == 5
+    assert len(CIFAR100SuperclassBenchmark.SUPERCLASSES) == 20
+    assert CIFAR100SuperclassBenchmark.SUPERCLASSES[0][1] == "aquatic_mammals"
+
     try:
         pm = PermutedMNISTBenchmark(n_tasks=5, batch_size=32, seed=42)
         assert pm.n_tasks == 5
         assert len(pm.permutations) == 5
         assert pm.permutations[0].shape == (784,)
-        # Verify permutations are different
-        from numpy import array_equal
         assert not np.array_equal(pm.permutations[0], pm.permutations[1])
         perm_seeded = PermutedMNISTBenchmark(n_tasks=5, batch_size=32, seed=42)
         assert np.array_equal(pm.permutations[0], perm_seeded.permutations[0])
-        return {"benchmark_dataclass": True, "permuted_mnist_works": True, "n_tasks": pm.n_tasks}
+        return {"benchmark_dataclass": True, "permuted_mnist_works": True, "cifar100_structure": True, "n_tasks": pm.n_tasks}
     except ImportError:
-        # TF datasets not available — test what we can
-        return {"benchmark_dataclass": True, "permuted_mnist_works": False, "note": "tensorflow-datasets not installed"}
+        return {"benchmark_dataclass": True, "permuted_mnist_works": False, "cifar100_structure": True, "note": "tensorflow-datasets not installed"}
 
 
 # ── Test 12: LR Schedule ─────────────────────────────────────────────
