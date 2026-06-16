@@ -11,5 +11,4 @@ from continua_fabric.core.elastic_weight import (
 )
 from continua_fabric.core.replay import (
     GenerativeReplayBuffer,
-    pc_generative_sample,
 )

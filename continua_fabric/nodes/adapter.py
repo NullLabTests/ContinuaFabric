@@ -25,18 +25,11 @@ class AdapterStack(FlattenInputMixin, NodeBase):
     this node maintains a stack of lightweight low-rank adapter modules that
     compose additively on a frozen base transformation.
 
-    Each adapter is a low-rank decomposition:  ΔW = A · B
+    Each adapter is a low-rank decomposition: ΔW = A · B
     where A ∈ ℝ^{in_features × rank}, B ∈ ℝ^{rank × out_features}.
 
-    During task k, only the k-th adapter pair (A_k, B_k) is trained; all
-    previous adapters and the base weights remain frozen.  This provides
-    strict isolation between tasks while sharing the representational
-    capacity of the base graph.
-
-    The adapters share an evolving subspace: new adapter pairs are projected
-    into the span of existing ones to encourage forward knowledge transfer,
-    and older adapters are analytically reprojected to minimise interference
-    (following the Share paper's subspace-evolution strategy).
+    Adapters are stored as stacked tensors so the forward pass is a single
+    vectorised JAX operation (compatible with JIT and fori_loop).
     """
 
     def __init__(
@@ -84,7 +77,7 @@ class AdapterStack(FlattenInputMixin, NodeBase):
         rank = config.get("rank", 8)
         max_adapters = config.get("max_adapters", 20)
 
-        key_w, key_b, key_a0, key_b0 = jax.random.split(key, 4)
+        key_w, key_b, key_stacks = jax.random.split(key, 3)
         if weight_init is None:
             weight_init = NormalInitializer(mean=0.0, std=0.01)
 
@@ -105,14 +98,20 @@ class AdapterStack(FlattenInputMixin, NodeBase):
             w_init = jax.random.normal(rand_key_w[edge_key], weight_shape) * 0.05
             weights_dict[edge_key] = w_init
 
-            # Initialise adapter stack (empty slots, filled as tasks arrive)
-            weights_dict[f"{edge_key}_adapter_A_0"] = jax.random.normal(
-                key_a0, (weight_shape[0], rank)
-            ) * 0.01
-            weights_dict[f"{edge_key}_adapter_B_0"] = jnp.zeros(
-                (rank, weight_shape[1])
+            key_stacks, ka, kb = jax.random.split(key_stacks, 3)
+            # Stacked adapters: (max_adapters, in_features, rank) and (max_adapters, rank, out_features)
+            A_stack = jnp.zeros((max_adapters, weight_shape[0], rank), dtype=jnp.float32)
+            B_stack = jnp.zeros((max_adapters, rank, weight_shape[1]), dtype=jnp.float32)
+            # Initialise first adapter slot
+            A_stack = A_stack.at[0].set(
+                jax.random.normal(ka, (weight_shape[0], rank)) * 0.01
             )
-            # Mask: 1 = active adapter, 0 = inactive
+            B_stack = B_stack.at[0].set(
+                jnp.zeros((rank, weight_shape[1]))
+            )
+            weights_dict[f"{edge_key}_A_stack"] = A_stack
+            weights_dict[f"{edge_key}_B_stack"] = B_stack
+            # Mask: 1 = active adapter, 0 = inactive, shape (max_adapters,)
             weights_dict[f"{edge_key}_adapter_mask"] = jnp.zeros(
                 (max_adapters,), dtype=jnp.float32
             ).at[0].set(1.0)
@@ -126,23 +125,31 @@ class AdapterStack(FlattenInputMixin, NodeBase):
     def add_adapter(
         params: NodeParams,
         edge_key: str,
-        key: jax.Array,
-        rank: int,
-        in_features: int,
-        out_features: int,
         adapter_idx: int,
+        key: jax.Array,
+        in_features: int,
+        rank: int,
+        out_features: int,
     ) -> NodeParams:
-        """Add a new low-rank adapter pair for a new task."""
+        """Activate a new adapter slot with random initialisation."""
         ka, kb = jax.random.split(key)
-        new_A = jax.random.normal(ka, (in_features, rank)) * 0.01
-        new_B = jnp.zeros((rank, out_features))
-
         weights = dict(params.weights)
-        weights[f"{edge_key}_adapter_A_{adapter_idx}"] = new_A
-        weights[f"{edge_key}_adapter_B_{adapter_idx}"] = new_B
+
+        A_stack_key = f"{edge_key}_A_stack"
+        B_stack_key = f"{edge_key}_B_stack"
+
+        A_stack = weights[A_stack_key]
+        B_stack = weights[B_stack_key]
+
+        A_stack = A_stack.at[adapter_idx].set(
+            jax.random.normal(ka, (in_features, rank)) * 0.01
+        )
+
+        weights[A_stack_key] = A_stack
+        weights[B_stack_key] = B_stack
+
         mask_key = f"{edge_key}_adapter_mask"
-        old_mask = weights[mask_key]
-        weights[mask_key] = old_mask.at[adapter_idx].set(1.0)
+        weights[mask_key] = weights[mask_key].at[adapter_idx].set(1.0)
 
         return params._replace(weights=weights)
 
@@ -172,22 +179,21 @@ class AdapterStack(FlattenInputMixin, NodeBase):
 
                 base_out = jnp.matmul(x, w)
 
-                # Add active adapter contributions
-                mask_key = f"{edge_key}_adapter_mask"
-                mask = params.weights.get(mask_key)
-                if mask is not None:
-                    adapter_out = jnp.zeros_like(base_out)
-                    n_active = int(jnp.sum(mask))
-                    for i in range(int(n_active)):
-                        A_key = f"{edge_key}_adapter_A_{i}"
-                        B_key = f"{edge_key}_adapter_B_{i}"
-                        A = params.weights.get(A_key)
-                        B = params.weights.get(B_key)
-                        if A is not None and B is not None:
-                            adapter_out = adapter_out + jnp.matmul(
-                                jnp.matmul(x, A), B
-                            )
+                A_stack = params.weights.get(f"{edge_key}_A_stack")
+                B_stack = params.weights.get(f"{edge_key}_B_stack")
+                mask = params.weights.get(f"{edge_key}_adapter_mask")
 
+                if A_stack is not None and B_stack is not None and mask is not None:
+                    # Vectorised adapter computation
+                    # x: (batch, in_features)
+                    # A_stack: (max_adapters, in_features, rank)
+                    # B_stack: (max_adapters, rank, out_features)
+                    # mask: (max_adapters,)
+                    # Result: (batch, out_features)
+                    xA = jnp.einsum('bi,air->bar', x, A_stack)  # (batch, max_adapters, rank)
+                    xAB = jnp.einsum('bar,aro->bao', xA, B_stack)  # (batch, max_adapters, out_features)
+                    masked = xAB * mask[None, :, None]  # (batch, max_adapters, out_features)
+                    adapter_out = jnp.sum(masked, axis=1)  # (batch, out_features)
                     pre_activation = pre_activation + base_out + adapter_out
                 else:
                     pre_activation = pre_activation + base_out

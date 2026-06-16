@@ -153,8 +153,8 @@ class SelfModulatingLinear(FlattenInputMixin, NodeBase):
         h1 = jax.nn.relu(h1)
         ctrl_out = jnp.dot(h1, params.weights["controller_w2"]) + params.weights["controller_b2"]
 
-        d_eta = jnp.sigmoid(ctrl_out[0]) * 0.5 + 0.01  # range [0.01, 0.51]
-        d_precision = jnp.sigmoid(ctrl_out[1]) * 2.0 + 0.5  # range [0.5, 2.5]
+        d_eta = jax.nn.sigmoid(ctrl_out[0]) * 0.5 + 0.01  # range [0.01, 0.51]
+        d_precision = jax.nn.sigmoid(ctrl_out[1]) * 2.0 + 0.5  # range [0.5, 2.5]
 
         # Apply modulation to energy (precision scaling)
         state = state._replace(
