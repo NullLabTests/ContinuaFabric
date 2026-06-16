@@ -21,3 +21,6 @@ from continua_fabric.core.metrics import (
     compute_cl_metrics,
     count_parameters,
 )
+from continua_fabric.core.visualization import (
+    plot_energy_traces,
+)

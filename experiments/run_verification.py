@@ -426,8 +426,21 @@ def test_parameter_count():
     return {"n_params": n, "input_weights": p.nodes['input'].weights.get('input->hidden:in', None) is not None}
 
 
-# ── Test 14: ContinualPCEngine (multi-task) ──────────────────────────
-@section("14. ContinualPCEngine (2-task synthetic)")
+# ── Test 14: Energy Visualization ─────────────────────────────────────
+@section("14. Energy Visualization")
+def test_energy_viz():
+    from continua_fabric.core.visualization import plot_energy_traces
+    import tempfile, os
+    energies = {"task_0": [2.0, 1.5, 1.0], "task_1": [1.8, 1.2, 0.8]}
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        plot_energy_traces(energies, title="Test", save_path=f.name)
+        assert os.path.getsize(f.name) > 0, "Plot file is empty"
+        os.unlink(f.name)
+    return {"plot_saved": True, "n_tasks": len(energies)}
+
+
+# ── Test 15: ContinualPCEngine (multi-task) ──────────────────────────
+@section("15. ContinualPCEngine (2-task synthetic)")
 def test_continual_engine(ewc_lambda=50.0, use_ewc=True, use_replay=True):
     from continua_fabric.core import ContinualPCEngine, ContinualPCConfig
     inp = Linear(shape=(784,), name='input')
@@ -489,6 +502,7 @@ if __name__ == "__main__":
     test_benchmarks()
     test_lr_schedule()
     test_parameter_count()
+    test_energy_viz()
     test_continual_engine()
 
     print(f"\n{'='*60}")

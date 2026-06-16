@@ -8,3 +8,7 @@ build/
 jax_setup.py
 *.so
 .DS_Store
+.vscode/
+.idea/
+verification_report.json
+*.png
