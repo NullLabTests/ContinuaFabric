@@ -276,8 +276,37 @@ def test_synaptic_intelligence():
     return {"omega_captured": buf.omega is not None, "penalty_norm": round(grad_norm, 6), "n_tasks_protected": 1}
 
 
-# ── Test 9: ContinualPCEngine (multi-task) ───────────────────────────
-@section("9. ContinualPCEngine (2-task synthetic)")
+# ── Test 9: CLMetrics ───────────────────────────────────────────────
+@section("9. CLMetrics")
+def test_cl_metrics():
+    from continua_fabric.core.metrics import CLMetrics
+    rng = np.random.RandomState(42)
+    n_tasks = 4
+    # Simulate a performance matrix with some forgetting and forward transfer
+    perf = np.zeros((n_tasks, n_tasks))
+    for i in range(n_tasks):
+        for j in range(n_tasks):
+            base = 0.8 - 0.1 * abs(i - j) + 0.05 * rng.randn()
+            perf[i, j] = np.clip(base, 0.0, 1.0)
+
+    metrics = CLMetrics(
+        task_names=[f"t{i}" for i in range(n_tasks)],
+        performance_matrix=perf,
+        higher_is_better=True,
+    )
+    s = metrics.summary()
+    return {
+        "n_tasks": s["n_tasks"],
+        "avg_bwt": round(s["avg_backward_transfer"], 4),
+        "avg_fwt": round(s["avg_forward_transfer"], 4),
+        "avg_forgetting": round(s["avg_forgetting"], 4),
+        "plasticity": round(s["plasticity"], 4),
+        "accuracy": round(s["accuracy"], 4),
+    }
+
+
+# ── Test 10: ContinualPCEngine (multi-task) ──────────────────────────
+@section("10. ContinualPCEngine (2-task synthetic)")
 def test_continual_engine(ewc_lambda=50.0, use_ewc=True, use_replay=True):
     from continua_fabric.core import ContinualPCEngine, ContinualPCConfig
     inp = Linear(shape=(784,), name='input')
@@ -334,6 +363,7 @@ if __name__ == "__main__":
     test_meta_pc()
     test_layer_norm()
     test_synaptic_intelligence()
+    test_cl_metrics()
     test_continual_engine()
 
     print(f"\n{'='*60}")

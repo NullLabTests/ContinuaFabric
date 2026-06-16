@@ -1,7 +1,7 @@
 {
   "1. FabricPC baseline training": {
     "status": "PASS",
-    "time_s": 3.244,
+    "time_s": 3.213,
     "nodes": 3,
     "params": "GraphParams(nodes=3, total_params=100738)",
     "initial_energy": 1.4818,
@@ -10,54 +10,64 @@
   },
   "2. SelfModulatingLinear node": {
     "status": "PASS",
-    "time_s": 4.852,
+    "time_s": 4.473,
     "controller_params_present": true,
     "output_energy": 3.2707
   },
   "3. AdapterStack node": {
     "status": "PASS",
-    "time_s": 3.185,
+    "time_s": 3.142,
     "adapter_stacks_present": true,
     "A_stack_shape": "(10, 784, 4)",
     "output_energy": 2.3449
   },
   "4. Elastic Weight Consolidation": {
     "status": "PASS",
-    "time_s": 5.36,
+    "time_s": 5.327,
     "fisher_captured": true,
     "penalty_norm": 0.0,
     "n_tasks_protected": 1
   },
   "5. Generative Replay buffer": {
     "status": "PASS",
-    "time_s": 3.421,
+    "time_s": 3.624,
     "replay_capable": true,
     "buffer_size": 64,
     "n_tasks_in_buffer": 2
   },
   "6. MetaPCLearner": {
     "status": "PASS",
-    "time_s": 1.612,
+    "time_s": 1.742,
     "gradients_computed": true,
     "energy": 1.9229
   },
   "7. LayerNormPC node": {
     "status": "PASS",
-    "time_s": 1.38,
+    "time_s": 1.393,
     "ln_params_present": true,
     "ln_gamma_mean": 1.0,
     "output_energy": 7.9999
   },
   "8. Synaptic Intelligence": {
     "status": "PASS",
-    "time_s": 1.708,
+    "time_s": 1.691,
     "omega_captured": true,
     "penalty_norm": 0.0,
     "n_tasks_protected": 1
   },
-  "9. ContinualPCEngine (2-task synthetic)": {
+  "9. CLMetrics": {
     "status": "PASS",
-    "time_s": 19.616,
+    "time_s": 0.04,
+    "n_tasks": 4,
+    "avg_bwt": -0.2533,
+    "avg_fwt": 0.0824,
+    "avg_forgetting": 0.1905,
+    "plasticity": -0.2533,
+    "accuracy": 0.6005
+  },
+  "10. ContinualPCEngine (2-task synthetic)": {
+    "status": "PASS",
+    "time_s": 20.076,
     "n_tasks": 3,
     "n_ewc_buffers": 3,
     "replay_size": 600,

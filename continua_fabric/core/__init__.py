@@ -16,3 +16,7 @@ from continua_fabric.core.synaptic_intelligence import (
     SIBuffer,
     compute_si_penalty,
 )
+from continua_fabric.core.metrics import (
+    CLMetrics,
+    compute_cl_metrics,
+)
