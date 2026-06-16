@@ -404,8 +404,30 @@ def test_lr_schedule():
     return {"schedule_enabled": True, "final_energy": round(final_energy, 4), "schedule_type": "cosine"}
 
 
-# ── Test 13: ContinualPCEngine (multi-task) ──────────────────────────
-@section("13. ContinualPCEngine (2-task synthetic)")
+# ── Test 13: Parameter Count Utility ──────────────────────────────────
+@section("13. Parameter Count")
+def test_parameter_count():
+    from continua_fabric.core.metrics import count_parameters
+    from continua_fabric.nodes import LayerNormPC
+
+    inp = Linear(shape=(784,), name='input')
+    hid = LayerNormPC(shape=(128,), name='hidden')
+    out = Linear(shape=(2,), name='output')
+    s = graph(
+        nodes=[inp, hid, out],
+        edges=[Edge(source=inp, target=hid.slot('in')), Edge(source=hid, target=out.slot('in'))],
+        task_map=TaskMap(x=inp, y=out),
+        inference=InferenceSGD(eta_infer=0.05, infer_steps=5),
+    )
+    key = jax.random.PRNGKey(0)
+    p = initialize_params(s, key)
+    n = count_parameters(p)
+    assert n > 0, f"Expected positive parameter count, got {n}"
+    return {"n_params": n, "input_weights": p.nodes['input'].weights.get('input->hidden:in', None) is not None}
+
+
+# ── Test 14: ContinualPCEngine (multi-task) ──────────────────────────
+@section("14. ContinualPCEngine (2-task synthetic)")
 def test_continual_engine(ewc_lambda=50.0, use_ewc=True, use_replay=True):
     from continua_fabric.core import ContinualPCEngine, ContinualPCConfig
     inp = Linear(shape=(784,), name='input')
@@ -466,6 +488,7 @@ if __name__ == "__main__":
     test_dropout()
     test_benchmarks()
     test_lr_schedule()
+    test_parameter_count()
     test_continual_engine()
 
     print(f"\n{'='*60}")

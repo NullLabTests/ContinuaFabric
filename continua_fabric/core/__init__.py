@@ -19,4 +19,5 @@ from continua_fabric.core.synaptic_intelligence import (
 from continua_fabric.core.metrics import (
     CLMetrics,
     compute_cl_metrics,
+    count_parameters,
 )

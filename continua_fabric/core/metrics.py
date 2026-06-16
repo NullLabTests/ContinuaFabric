@@ -1,3 +1,4 @@
+import jax
 import jax.numpy as jnp
 import numpy as np
 from typing import Dict, List, Optional, Tuple, Callable
@@ -106,6 +107,13 @@ class CLMetrics:
             "avg_forgetting": self.average_forgetting(),
             "plasticity": self.plasticity(),
         }
+
+
+def count_parameters(params: any) -> int:
+    """Count total trainable parameters in a PC graph params tree."""
+    return sum(
+        int(x.size) for x in jax.tree_util.tree_leaves(params)
+    )
 
 
 def compute_cl_metrics(
