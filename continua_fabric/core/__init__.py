@@ -12,3 +12,7 @@ from continua_fabric.core.elastic_weight import (
 from continua_fabric.core.replay import (
     GenerativeReplayBuffer,
 )
+from continua_fabric.core.synaptic_intelligence import (
+    SIBuffer,
+    compute_si_penalty,
+)

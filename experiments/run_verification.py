@@ -245,8 +245,39 @@ def test_layer_norm():
     return {"ln_params_present": has_ln, "ln_gamma_mean": round(gamma_val, 4), "output_energy": round(float(jnp.sum(fs.nodes['output'].energy)), 4)}
 
 
-# ── Test 8: ContinualPCEngine (multi-task) ───────────────────────────
-@section("8. ContinualPCEngine (2-task synthetic)")
+# ── Test 8: Synaptic Intelligence ────────────────────────────────────
+@section("8. Synaptic Intelligence")
+def test_synaptic_intelligence():
+    from continua_fabric.core.synaptic_intelligence import SIBuffer, compute_si_penalty
+    inp = Linear(shape=(784,), name='input')
+    hid = Linear(shape=(128,), name='hidden')
+    out = Linear(shape=(2,), name='output')
+    s = graph(
+        nodes=[inp, hid, out],
+        edges=[Edge(source=inp, target=hid.slot('in')), Edge(source=hid, target=out.slot('in'))],
+        task_map=TaskMap(x=inp, y=out),
+        inference=InferenceSGD(eta_infer=0.05, infer_steps=5),
+    )
+    key = jax.random.PRNGKey(0)
+    p = initialize_params(s, key)
+    p2 = jax.tree_util.tree_map(lambda x: x + jax.random.normal(key, x.shape) * 0.01, p)
+
+    buf = SIBuffer()
+    tracker = SIBuffer.init_tracker(p)
+    grads = jax.tree_util.tree_map(
+        lambda x: jax.random.normal(key, x.shape) * 0.1, p
+    )
+    tracker = SIBuffer.update_tracker(tracker, grads, p, p2)
+    buf.omega = SIBuffer.compute_omega(tracker, p, p2)
+    buf.capture_params(p2)
+
+    penalty = compute_si_penalty(p2, p, [buf], si_lambda=1.0)
+    grad_norm = sum(float(jnp.sum(g ** 2)) for g in jax.tree_util.tree_leaves(penalty)) ** 0.5
+    return {"omega_captured": buf.omega is not None, "penalty_norm": round(grad_norm, 6), "n_tasks_protected": 1}
+
+
+# ── Test 9: ContinualPCEngine (multi-task) ───────────────────────────
+@section("9. ContinualPCEngine (2-task synthetic)")
 def test_continual_engine(ewc_lambda=50.0, use_ewc=True, use_replay=True):
     from continua_fabric.core import ContinualPCEngine, ContinualPCConfig
     inp = Linear(shape=(784,), name='input')
@@ -302,6 +333,7 @@ if __name__ == "__main__":
     test_replay()
     test_meta_pc()
     test_layer_norm()
+    test_synaptic_intelligence()
     test_continual_engine()
 
     print(f"\n{'='*60}")
