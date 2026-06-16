@@ -35,6 +35,9 @@ class ContinualPCConfig:
     replay_buffer_size: int = 2000
     use_ewc: bool = True
     use_replay: bool = True
+    use_lr_schedule: bool = False
+    lr_schedule_type: str = "cosine"  # "cosine" or "constant"
+    lr_min_ratio: float = 0.01  # minimum LR as fraction of peak LR
 
 
 class ContinualPCEngine:
@@ -64,6 +67,19 @@ class ContinualPCEngine:
             max_size=self.config.replay_buffer_size
         )
 
+    def _make_scheduler(self, num_epochs: int, steps_per_epoch: int):
+        """Create a learning rate schedule if enabled."""
+        if not self.config.use_lr_schedule:
+            return None
+        total_steps = num_epochs * steps_per_epoch
+        if self.config.lr_schedule_type == "cosine":
+            return optax.cosine_decay_schedule(
+                init_value=self.config.learning_rate,
+                decay_steps=total_steps,
+                alpha=self.config.lr_min_ratio,
+            )
+        return None
+
     def learn_task(
         self,
         train_loader: Any,
@@ -85,46 +101,55 @@ class ContinualPCEngine:
         )
         from fabricpc.core.learning import compute_local_weight_gradients
 
-        def train_step(p, opt_state, batch, rng_key):
-            clamps = {}
-            for task_name, task_value in batch.items():
-                if task_name in self.structure.task_map:
-                    node_name = self.structure.task_map[task_name]
-                    clamps[node_name] = task_value
+        # Setup LR schedule
+        steps_per_epoch = max(len(train_loader), 1)
+        lr_schedule_fn = self._make_scheduler(num_epochs, steps_per_epoch)
 
-            batch_size = next(iter(batch.values())).shape[0]
-            init_state = initialize_graph_state(
-                self.structure, batch_size, rng_key,
-                clamps=clamps, params=p,
-            )
-            final_state = run_inference(p, init_state, clamps, self.structure)
+        def make_train_step(lr_val=None):
+            """Create a train step with optional scheduled LR."""
+            optim = optax.adam(lr_val) if lr_val is not None else self.optimizer
 
-            energy = sum(
-                jnp.sum(final_state.nodes[n].energy)
-                for n in self.structure.nodes
-                if self.structure.nodes[n].node_info.in_degree > 0
-            ) / batch_size
+            def step_fn(p, opt_state, batch, rng_key):
+                clamps = {}
+                for task_name, task_value in batch.items():
+                    if task_name in self.structure.task_map:
+                        node_name = self.structure.task_map[task_name]
+                        clamps[node_name] = task_value
 
-            grads = compute_local_weight_gradients(p, final_state, self.structure)
-
-            if self.config.use_ewc and len(self.ewc_buffers) > 0:
-                ewc_penalty = compute_ewc_penalty(
-                    p, prev_params, list(self.ewc_buffers.values())
+                batch_size = next(iter(batch.values())).shape[0]
+                init_state = initialize_graph_state(
+                    self.structure, batch_size, rng_key,
+                    clamps=clamps, params=p,
                 )
-                grads = jax.tree_util.tree_map(
-                    lambda g, e: g + self.config.ewc_lambda * e,
-                    grads, ewc_penalty,
-                )
+                final_state = run_inference(p, init_state, clamps, self.structure)
 
-            updates, opt_state = self.optimizer.update(grads, opt_state, p)
-            p = optax.apply_updates(p, updates)
-            return p, opt_state, energy, final_state
+                energy_sum = sum(
+                    jnp.sum(final_state.nodes[n].energy)
+                    for n in self.structure.nodes
+                    if self.structure.nodes[n].node_info.in_degree > 0
+                ) / batch_size
 
-        jit_step = jax.jit(
-            lambda p, o, b, k: train_step(p, o, b, k)
-        )
+                grads = compute_local_weight_gradients(p, final_state, self.structure)
+
+                if self.config.use_ewc and len(self.ewc_buffers) > 0:
+                    ewc_penalty = compute_ewc_penalty(
+                        p, prev_params, list(self.ewc_buffers.values())
+                    )
+                    grads = jax.tree_util.tree_map(
+                        lambda g, e: g + self.config.ewc_lambda * e,
+                        grads, ewc_penalty,
+                    )
+
+                updates, opt_state = optim.update(grads, opt_state, p)
+                new_p = optax.apply_updates(p, updates)
+                return new_p, opt_state, energy_sum, final_state
+
+            return jax.jit(step_fn)
+
+        jit_step = make_train_step()
 
         epoch_losses = []
+        global_step = 0
         for epoch_idx in range(num_epochs):
             epoch_key, rng_key = jax.random.split(rng_key)
             batch_keys = jax.random.split(epoch_key, len(train_loader))
@@ -152,11 +177,19 @@ class ContinualPCEngine:
                         batch["x"] = jnp.concatenate([batch["x"], replay_x])
                         batch["y"] = jnp.concatenate([batch["y"], replay_y])
 
-                self.params, self.opt_state, loss_val, final_state = jit_step(
-                    self.params, self.opt_state, batch, batch_keys[batch_idx]
-                )
+                if lr_schedule_fn is not None:
+                    lr_val = lr_schedule_fn(global_step)
+                    step_fn = make_train_step(lr_val)
+                    self.params, _, loss_val, final_state = step_fn(
+                        self.params, self.opt_state, batch, batch_keys[batch_idx]
+                    )
+                else:
+                    self.params, self.opt_state, loss_val, final_state = jit_step(
+                        self.params, self.opt_state, batch, batch_keys[batch_idx]
+                    )
                 batch_losses.append(float(loss_val))
                 pbar.set_postfix(loss=f"{loss_val:.4f}")
+                global_step += 1
 
             avg_loss = sum(batch_losses) / len(batch_losses)
             epoch_losses.append(avg_loss)

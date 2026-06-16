@@ -369,8 +369,41 @@ def test_benchmarks():
         return {"benchmark_dataclass": True, "permuted_mnist_works": False, "note": "tensorflow-datasets not installed"}
 
 
-# ── Test 12: ContinualPCEngine (multi-task) ──────────────────────────
-@section("12. ContinualPCEngine (2-task synthetic)")
+# ── Test 12: LR Schedule ─────────────────────────────────────────────
+@section("12. Cosine LR Schedule")
+def test_lr_schedule():
+    from continua_fabric.core import ContinualPCEngine, ContinualPCConfig
+    inp = Linear(shape=(784,), name='input')
+    hid = Linear(shape=(128,), name='hidden')
+    out = Linear(shape=(2,), name='output')
+    s = graph(
+        nodes=[inp, hid, out],
+        edges=[Edge(source=inp, target=hid.slot('in')), Edge(source=hid, target=out.slot('in'))],
+        task_map=TaskMap(x=inp, y=out),
+        inference=InferenceSGD(eta_infer=0.05, infer_steps=5),
+    )
+    key = jax.random.PRNGKey(0)
+    p = initialize_params(s, key)
+
+    cfg = ContinualPCConfig(
+        infer_steps=5, learning_rate=3e-4,
+        use_lr_schedule=True, lr_schedule_type="cosine",
+        use_ewc=False, use_replay=False,
+    )
+    eng = ContinualPCEngine(structure=s, params=p, config=cfg, optimizer=optax.adam(3e-4))
+
+    rng = np.random.RandomState(42)
+    X = rng.randn(100, 784).astype(np.float32)
+    Y = np.eye(2)[rng.randint(0, 2, 100)].astype(np.float32)
+    loader = [{'x': X[i:i+32], 'y': Y[i:i+32]} for i in range(0, 100, 32)]
+    k, key = jax.random.split(key)
+    result = eng.learn_task(loader, 'scheduled', num_epochs=2, rng_key=k)
+    final_energy = result['energy'][-1]
+    return {"schedule_enabled": True, "final_energy": round(final_energy, 4), "schedule_type": "cosine"}
+
+
+# ── Test 13: ContinualPCEngine (multi-task) ──────────────────────────
+@section("13. ContinualPCEngine (2-task synthetic)")
 def test_continual_engine(ewc_lambda=50.0, use_ewc=True, use_replay=True):
     from continua_fabric.core import ContinualPCEngine, ContinualPCConfig
     inp = Linear(shape=(784,), name='input')
@@ -430,6 +463,7 @@ if __name__ == "__main__":
     test_cl_metrics()
     test_dropout()
     test_benchmarks()
+    test_lr_schedule()
     test_continual_engine()
 
     print(f"\n{'='*60}")
