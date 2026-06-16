@@ -219,8 +219,34 @@ def test_meta_pc():
     return {"gradients_computed": 'hidden' in grads.nodes, "energy": round(float(energy), 4)}
 
 
-# ── Test 7: ContinualPCEngine (multi-task) ───────────────────────────
-@section("7. ContinualPCEngine (2-task synthetic)")
+# ── Test 7: LayerNormPC node ────────────────────────────────────────
+@section("7. LayerNormPC node")
+def test_layer_norm():
+    from continua_fabric.nodes import LayerNormPC
+    inp = LayerNormPC(shape=(784,), name='input')
+    hid = LayerNormPC(shape=(128,), name='hidden')
+    out = LayerNormPC(shape=(2,), name='output')
+    s = graph(
+        nodes=[inp, hid, out],
+        edges=[Edge(source=inp, target=hid.slot('in')), Edge(source=hid, target=out.slot('in'))],
+        task_map=TaskMap(x=inp, y=out),
+        inference=InferenceSGD(eta_infer=0.05, infer_steps=10),
+    )
+    key = jax.random.PRNGKey(0)
+    p = initialize_params(s, key)
+
+    batch = {'x': jnp.ones((4, 784)), 'y': jnp.ones((4, 2))}
+    clamps = {s.task_map[k]: v for k, v in batch.items() if k in s.task_map}
+    st = initialize_graph_state(s, 4, key, clamps=clamps, params=p)
+    fs = run_inference(p, st, clamps, s)
+
+    has_ln = 'ln_gamma' in p.nodes['hidden'].weights
+    gamma_val = float(jnp.mean(p.nodes['hidden'].weights['ln_gamma']))
+    return {"ln_params_present": has_ln, "ln_gamma_mean": round(gamma_val, 4), "output_energy": round(float(jnp.sum(fs.nodes['output'].energy)), 4)}
+
+
+# ── Test 8: ContinualPCEngine (multi-task) ───────────────────────────
+@section("8. ContinualPCEngine (2-task synthetic)")
 def test_continual_engine(ewc_lambda=50.0, use_ewc=True, use_replay=True):
     from continua_fabric.core import ContinualPCEngine, ContinualPCConfig
     inp = Linear(shape=(784,), name='input')
@@ -275,6 +301,7 @@ if __name__ == "__main__":
     test_ewc()
     test_replay()
     test_meta_pc()
+    test_layer_norm()
     test_continual_engine()
 
     print(f"\n{'='*60}")
