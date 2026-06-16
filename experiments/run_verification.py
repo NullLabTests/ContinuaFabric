@@ -172,7 +172,6 @@ def test_ewc():
     grad_norm = sum(float(jnp.sum(g ** 2)) for g in jax.tree_util.tree_leaves(penalty)) ** 0.5
     return {"fisher_captured": buf.fisher is not None, "penalty_norm": round(grad_norm, 6), "n_tasks_protected": 1}
 
-    # ── Test 5: Generative Replay ────────────────────────────────────────
 
 @section("5. Generative Replay buffer")
 def test_replay():
@@ -305,8 +304,39 @@ def test_cl_metrics():
     }
 
 
-# ── Test 10: ContinualPCEngine (multi-task) ──────────────────────────
-@section("10. ContinualPCEngine (2-task synthetic)")
+# ── Test 10: DropoutPC node ──────────────────────────────────────────
+@section("10. DropoutPC node")
+def test_dropout():
+    from continua_fabric.nodes import DropoutPC
+    inp = Linear(shape=(784,), name='input')
+    hid = Linear(shape=(128,), name='hidden')
+    drop = DropoutPC(shape=(128,), name='dropout', drop_rate=0.3)
+    out = Linear(shape=(2,), name='output')
+    s = graph(
+        nodes=[inp, hid, drop, out],
+        edges=[
+            Edge(source=inp, target=hid.slot('in')),
+            Edge(source=hid, target=drop.slot('in')),
+            Edge(source=drop, target=out.slot('in')),
+        ],
+        task_map=TaskMap(x=inp, y=out),
+        inference=InferenceSGD(eta_infer=0.05, infer_steps=10),
+    )
+    key = jax.random.PRNGKey(0)
+    p = initialize_params(s, key)
+
+    batch = {'x': jnp.ones((8, 784)), 'y': jnp.ones((8, 2))}
+    clamps = {s.task_map[k]: v for k, v in batch.items() if k in s.task_map}
+    st = initialize_graph_state(s, 8, key, clamps=clamps, params=p)
+    fs = run_inference(p, st, clamps, s)
+
+    energy_val = float(jnp.sum(fs.nodes['output'].energy))
+    drop_rate = s.nodes['dropout'].node_info.node_config.get('drop_rate', 0.0)
+    return {"drop_rate": drop_rate, "output_energy": round(energy_val, 4), "n_params": len(jax.tree_util.tree_leaves(p.nodes['dropout'].weights))}
+
+
+# ── Test 11: ContinualPCEngine (multi-task) ──────────────────────────
+@section("11. ContinualPCEngine (2-task synthetic)")
 def test_continual_engine(ewc_lambda=50.0, use_ewc=True, use_replay=True):
     from continua_fabric.core import ContinualPCEngine, ContinualPCConfig
     inp = Linear(shape=(784,), name='input')
@@ -364,6 +394,7 @@ if __name__ == "__main__":
     test_layer_norm()
     test_synaptic_intelligence()
     test_cl_metrics()
+    test_dropout()
     test_continual_engine()
 
     print(f"\n{'='*60}")
