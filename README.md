@@ -39,29 +39,37 @@ continual-learning framework that runs on CPU and GPU.
 | **MetaPCLearner** | SOLAR (2605.20189) + Hyperagents (2603.19461) | PC inference loop as meta-optimiser — adapt latents faster across task distributions |
 | **EWCBuffer** | Kirkpatrick et al. 2017 | Diagonal Fisher approximated from PC energy gradients per-node |
 | **GenerativeReplayBuffer** | Shin et al. 2017 | PC graph generates pseudo-samples; no stored data needed |
-| **EnergyBasedArchSearch** | DGM (2505.22954) | PC energy as fitness for graph mutations (insert, skip, prune) |
+| **EnergyBasedArchSearch** | DGM (2505.22954) | PC energy as fitness for graph mutations (insert, skip, split, prune) |
+| **SIBuffer** | Zenke et al. 2017 | Online per-parameter importance via path integral (Synaptic Intelligence) |
+| **LayerNormPC** | Ba et al. 2016 | PC node with learnable gain/bias and layer normalisation for stable inference |
+| **DropoutPC** | Srivastava et al. 2014 | Stochastic latent gating for PC regularisation |
+| **CLMetrics** | Lopez-Paz & Ranzato 2017 | Backward/forward transfer, forgetting, and plasticity metrics |
 
 ## Project Structure
 
 ```
 continua_fabric/
   core/
-    continual.py          — ContinualPCEngine, ContinualPCConfig, TaskSchedule
-    elastic_weight.py     — EWCBuffer, compute_ewc_penalty, energy_importance
-    replay.py             — GenerativeReplayBuffer
+    continual.py              — ContinualPCEngine, ContinualPCConfig, TaskSchedule
+    elastic_weight.py         — EWCBuffer, compute_ewc_penalty, energy_importance
+    replay.py                 — GenerativeReplayBuffer
+    synaptic_intelligence.py  — SIBuffer, compute_si_penalty (Zenke et al. 2017)
+    metrics.py                — CLMetrics: BWT, FWT, forgetting, plasticity
   nodes/
-    self_modulating.py    — SelfModulatingLinear (micro-controller hypernetwork)
-    adapter.py            — AdapterStack (frozen base + low-rank adapters)
+    self_modulating.py        — SelfModulatingLinear (micro-controller hypernetwork)
+    adapter.py                — AdapterStack (frozen base + low-rank adapters)
+    normalization.py          — LayerNormPC (learnable gain/bias + layer norm)
+    dropout.py                — DropoutPC (stochastic latent gating)
   meta/
-    meta_pc.py            — MetaPCLearner, meta_pc_train_step
-    architecture_search.py — EnergyBasedArchSearch, mutate_graph
+    meta_pc.py                — MetaPCLearner, meta_pc_train_step
+    architecture_search.py    — EnergyBasedArchSearch, mutate_graph, crossover_graphs
   benchmarks/
-    continual_benchmarks.py — SplitMNISTBenchmark, PermutedMNISTBenchmark
+    continual_benchmarks.py   — SplitMNISTBenchmark, PermutedMNISTBenchmark
 experiments/
-  run_verification.py       — 7-test verification suite
-  continual_comparison.py   — EWC vs replay vs no-protection comparison
-  split_mnist_demo.py       — Split MNIST continual learning demo
-  continual_comparison.png  — Visual comparison plot
+  run_verification.py         — 12-test verification suite
+  continual_comparison.py     — EWC vs replay vs no-protection comparison
+  split_mnist_demo.py         — Split MNIST continual learning demo
+  continual_comparison.png    — Visual comparison plot
 ```
 
 ## Quick Start
@@ -82,17 +90,22 @@ python experiments/continual_comparison.py
 
 ## Verification Results
 
-All **7 tests** pass on JAX 0.10.1 (CPU; GPU transparent via XLA):
+All **12 tests** pass on JAX 0.10.1 (CPU; GPU transparent via XLA):
 
-| Test | Time | Key Metric |
-|------|------|-----------|
-| FabricPC baseline training | 3.3s | energy 2.09 → 0.13 (94% reduction) |
-| SelfModulatingLinear | 4.7s | controller params present, inference runs |
-| AdapterStack | 3.3s | stacked adapters, vectorised forward pass |
-| Elastic Weight Consolidation | 5.4s | Fisher captured, penalty computed |
-| Generative Replay | 3.7s | buffer size 64, sampling works |
-| MetaPCLearner | 1.9s | gradients computed, energy = 1.92 |
-| ContinualPCEngine (3-task) | 20.3s | all 3 tasks learned, energy = 0.54 |
+| Test | Key Metric |
+|------|-----------|
+| FabricPC baseline training | energy 2.09 → 0.13 (94% reduction) |
+| SelfModulatingLinear | controller params present, inference runs |
+| AdapterStack | stacked adapters, vectorised forward pass |
+| Elastic Weight Consolidation | Fisher captured, penalty computed |
+| Generative Replay | buffer size 64, sampling works |
+| MetaPCLearner | gradients computed, energy = 1.92 |
+| **LayerNormPC** | learnable ln_gamma, output energy computed |
+| **Synaptic Intelligence** | omega captured, penalty computed |
+| **CLMetrics** | BWT/FWT/plasticity/forg/accuracy all computed |
+| **DropoutPC** | stochastic gating at configurable rate |
+| **Benchmarks** | dataclass verified, permutation consistency checked |
+| ContinualPCEngine (3-task) | all 3 tasks learned, energy = 0.54 |
 
 ### Comparison Experiment
 
