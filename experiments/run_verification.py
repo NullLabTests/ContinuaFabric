@@ -335,8 +335,42 @@ def test_dropout():
     return {"drop_rate": drop_rate, "output_energy": round(energy_val, 4), "n_params": len(jax.tree_util.tree_leaves(p.nodes['dropout'].weights))}
 
 
-# ── Test 11: ContinualPCEngine (multi-task) ──────────────────────────
-@section("11. ContinualPCEngine (2-task synthetic)")
+# ── Test 11: Benchmarks ─────────────────────────────────────────────
+@section("11. Benchmarks")
+def test_benchmarks():
+    from continua_fabric.benchmarks import ContinualBenchmarkResult
+    # Test dataclass
+    res = ContinualBenchmarkResult(
+        task_order=["a", "b", "c"],
+        accuracies=[0.9, 0.8, 0.7],
+        forgetting=[0.05, 0.1, 0.0],
+        final_accuracy=0.8,
+        average_accuracy=0.8,
+        average_forgetting=0.05,
+    )
+    assert len(res.task_order) == 3
+    assert abs(res.final_accuracy - 0.8) < 1e-6
+
+    # Test PermutedMNISTBenchmark constructor and permutation generation
+    from continua_fabric.benchmarks import PermutedMNISTBenchmark
+    try:
+        pm = PermutedMNISTBenchmark(n_tasks=5, batch_size=32, seed=42)
+        assert pm.n_tasks == 5
+        assert len(pm.permutations) == 5
+        assert pm.permutations[0].shape == (784,)
+        # Verify permutations are different
+        from numpy import array_equal
+        assert not np.array_equal(pm.permutations[0], pm.permutations[1])
+        perm_seeded = PermutedMNISTBenchmark(n_tasks=5, batch_size=32, seed=42)
+        assert np.array_equal(pm.permutations[0], perm_seeded.permutations[0])
+        return {"benchmark_dataclass": True, "permuted_mnist_works": True, "n_tasks": pm.n_tasks}
+    except ImportError:
+        # TF datasets not available — test what we can
+        return {"benchmark_dataclass": True, "permuted_mnist_works": False, "note": "tensorflow-datasets not installed"}
+
+
+# ── Test 12: ContinualPCEngine (multi-task) ──────────────────────────
+@section("12. ContinualPCEngine (2-task synthetic)")
 def test_continual_engine(ewc_lambda=50.0, use_ewc=True, use_replay=True):
     from continua_fabric.core import ContinualPCEngine, ContinualPCConfig
     inp = Linear(shape=(784,), name='input')
@@ -395,6 +429,7 @@ if __name__ == "__main__":
     test_synaptic_intelligence()
     test_cl_metrics()
     test_dropout()
+    test_benchmarks()
     test_continual_engine()
 
     print(f"\n{'='*60}")
