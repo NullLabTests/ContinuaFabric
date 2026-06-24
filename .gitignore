@@ -1,14 +1,23 @@
+# Byte-compiled
 __pycache__/
-*.pyc
-*.pyo
-*.egg-info/
-dist/
-build/
-.venv/
-jax_setup.py
-*.so
-.DS_Store
+*.py[cod]
+*$py.class
+
+# Env
+.env
+.venv
+venv/
+
+# IDE
 .vscode/
 .idea/
-verification_report.json
-*.png
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
+build/
+*.egg-info/
